@@ -1,77 +1,123 @@
 -----------------For support, scripts, and more----------------
 --------------- https://discord.gg/wasabiscripts  -------------
 ---------------------------------------------------------------
+lib.locale()
+local config = lib.require('config')
 
-local bagEquipped, bagObj
-local hash = `p_michael_backpack_s`
-local ox_inventory = exports.ox_inventory
-local ped = cache.ped
-local justConnect = true
+if config.createBagObject then
+    local ox_inventory = exports.ox_inventory
+    
+    local filtered1 = {}
+    local filtered2 = {}
+    
+	for item_name, _ in pairs(config.backpacks) do
+        filtered1[item_name] = true
+		filtered2[#filtered2+1] = item_name
+	end
 
-
-
-local function PutOnBag()
-    local x, y, z = table.unpack(GetOffsetFromEntityInWorldCoords(ped,0.0,3.0,0.5))
-    lib.requestModel(hash, 100)
-    bagObj = CreateObjectNoOffset(hash, x, y, z, true, false)
-    AttachEntityToEntity(bagObj, ped, GetPedBoneIndex(ped, 24818), 0.07, -0.11, -0.05, 0.0, 90.0, 175.0, true, true, false, true, 1, true)
-    bagEquipped = true
-end
-
-local function RemoveBag()
-    if DoesEntityExist(bagObj) then
-        DeleteObject(bagObj)
+    local currentBagObject = nil
+    local function onLoad()
+        LocalPlayer.state:set('wsb_bag', nil, true)
     end
-    SetModelAsNoLongerNeeded(hash)
-    bagObj = nil
-    bagEquipped = nil
-end
 
-AddEventHandler('ox_inventory:updateInventory', function(changes)
-    if justConnect then
-        Wait(4500)
-        justConnect = nil
-    end
-    for k, v in pairs(changes) do
-        if type(v) == 'table' then
-            local count = ox_inventory:Search('count', 'backpack')
-	        if count > 0 and (not bagEquipped or not bagObj) then
-                PutOnBag()
-            elseif count < 1 and bagEquipped then
-                RemoveBag()
+    AddEventHandler("Characters:Client:Spawn", onLoad)
+    RegisterNetEvent('esx:playerLoaded', onLoad)
+    RegisterNetEvent('QBCore:Client:OnPlayerLoaded', onLoad)
+    RegisterNetEvent('ox:playerLoaded', onLoad)
+
+    AddEventHandler('onResourceStop', function(resourceName)
+        if resourceName == GetCurrentResourceName() then
+            if currentBagObject then
+                DeleteEntity(currentBagObject)
+                ClearPedTasks(cache.ped)
             end
         end
-        if type(v) == 'boolean' then
-            local count = ox_inventory:Search('count', 'backpack')
-            if count < 1 and bagEquipped then
-                RemoveBag()
+    end)
+
+    ---@param data table?
+    local putOnBag = function(data)
+        if currentBagObject then return end
+        if not data then
+            local has_item = ox_inventory:Search('count', filtered2)
+            if has_item then
+                for name, count in pairs(has_item) do
+                    if count and count > 0 then
+                        data = config.createBagObject[name]
+                        break
+                    end
+                end
+            end
+        elseif type(data) == 'string' then
+            data = config.createBagObject[data]
+        else
+            return
+        end
+        if not data then return end
+
+        local x, y, z = table.unpack(GetOffsetFromEntityInWorldCoords(cache.ped, 0.0, 3.0, 0.5))
+
+        currentBagObject = {}
+        
+        lib.requestModel(data.hash, 100)
+        currentBagObject.object = CreateObjectNoOffset(data.hash, x, y, z, true, false, false)
+        AttachEntityToEntity(currentBagObject.object, cache.ped, GetPedBoneIndex(cache.ped, data.bone), data.offest.x, data.offest.y, data.offest.z, data.rotation.x, data.rotation.y, data.rotation.z, true, true, false, true, 1, true)
+        
+        currentBagObject.hash = data.hash
+    end
+
+    local removeBag = function()
+        if not currentBagObject then return end
+        if DoesEntityExist(currentBagObject.object) then
+            DeleteObject(currentBagObject.object)
+        end
+        SetModelAsNoLongerNeeded(currentBagObject.hash)
+
+        currentBagObject = nil
+    end
+
+    local justConnect = true
+
+    AddEventHandler('ox_inventory:updateInventory', function(changes)
+        if justConnect then
+            Wait(4500)
+            justConnect = false
+        end
+        for _, v in pairs(changes) do
+            if type(v) == 'table' then
+                local has_item = ox_inventory:Search('count', filtered2)
+                if has_item and (not currentBagObject) then
+                    for name, count in pairs(has_item) do
+                        if count and count > 0 then
+                            putOnBag(name)
+                            break
+                        end
+                    end
+                else
+                    removeBag()
+                end
+
+                local count = ox_inventory:Search('count', filtered2)
+                if count > 0 and (not currentBagObject) then
+                    putOnBag()
+                elseif count < 1 and currentBagObject then
+                    removeBag()
+                end
+            end
+            if type(v) == 'boolean' then
+                local count = ox_inventory:Search('count', filtered2)
+                if count < 1 and currentBagObject then
+                    removeBag()
+                end
             end
         end
-    end
-end)
+    end)
 
-lib.onCache('ped', function(value)
-    ped = value
-end)
-
-lib.onCache('vehicle', function(value)
-    if GetResourceState('ox_inventory') ~= 'started' then return end
-    if value then
-        RemoveBag()
-    else
-        local count = ox_inventory:Search('count', 'backpack')
-        if count and count >= 1 then
-            PutOnBag()
+    lib.onCache('vehicle', function(value)
+        if GetResourceState('ox_inventory') ~= 'started' then return end
+        if value then
+            removeBag()
+        else
+            putOnBag()
         end
-    end
-end)
-
-exports('openBackpack', function(data, slot)
-    if not slot?.metadata?.identifier then
-        local identifier = lib.callback.await('wasabi_backpack:getNewIdentifier', 100, data.slot)
-        ox_inventory:openInventory('stash', 'bag_'..identifier)
-    else
-        TriggerServerEvent('wasabi_backpack:openBackpack', slot.metadata.identifier)
-        ox_inventory:openInventory('stash', 'bag_'..slot.metadata.identifier)
-    end
-end)
+    end)
+end

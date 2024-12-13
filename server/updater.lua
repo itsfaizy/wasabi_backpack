@@ -1,7 +1,8 @@
 -----------------For support, scripts, and more----------------
 --------------- https://discord.gg/wasabiscripts  -------------
 ---------------------------------------------------------------
-if Config.checkForUpdates then
+local config = lib.require('config')
+if config.checkForUpdates then
     local curVersion = GetResourceMetadata(GetCurrentResourceName(), "version")
     local resourceName = "wasabi_backpack"
 
